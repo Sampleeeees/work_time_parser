@@ -110,7 +110,7 @@ class ExcelParser:
                 date_val = row[0]
                 desc = row[2] or ""
                 task = row[3] or ""
-                hours = round(row[4], 2)
+                hours = float(row[4])
                 task_id = row[5]
 
                 if isinstance(date_val, str):
