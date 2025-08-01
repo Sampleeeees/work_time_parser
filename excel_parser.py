@@ -3,6 +3,7 @@ from datetime import datetime
 
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, DEFAULT_FONT, Alignment
+from openpyxl.styles.numbers import FORMAT_NUMBER_00
 from openpyxl.utils import column_index_from_string
 from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -121,14 +122,26 @@ class ExcelParser:
                 teamwork_link = f"https://avada.teamwork.com/#tasks/{task_id}"
 
                 # write data to cells
+                cell_hours = new_ws.cell(row=row_cursor, column=4, value=hours)
+                cell_hours.number_format = FORMAT_NUMBER_00
+
+                cell_rate = new_ws.cell(row=row_cursor, column=5, value=f"={rate_cell_ref}")
+                cell_rate.number_format = FORMAT_NUMBER_00
+
+                cell_exchange = new_ws.cell(row=row_cursor, column=6, value=f"={exchange_cell_ref}")
+                cell_exchange.number_format = FORMAT_NUMBER_00
+
+                cell_amount = new_ws.cell(
+                    row=row_cursor,
+                    column=7,
+                    value=f"=D{row_cursor}*{rate_cell_ref}*{exchange_cell_ref}"
+                )
+                cell_amount.number_format = FORMAT_NUMBER_00
+
                 new_ws.cell(row=row_cursor, column=1, value=task_id)
                 new_ws.cell(row=row_cursor, column=2, value=teamwork_link)
                 new_ws.cell(row=row_cursor, column=3, value=desc)
-                new_ws.cell(row=row_cursor, column=4, value=hours)
-                new_ws.cell(row=row_cursor, column=5, value=f"={rate_cell_ref}")
-                new_ws.cell(row=row_cursor, column=6, value=f"={exchange_cell_ref}")
-                new_ws.cell(row=row_cursor, column=7, value=f"=ROUND(D{row_cursor}*{rate_cell_ref}*{exchange_cell_ref}, 2)")
-                new_ws.cell(row=row_cursor, column=8, value=date_val.strftime("%d.%m.%Y"))
+                new_ws.cell(row=row_cursor, column=8, value=date_val.strftime("%d.%m.%Y") if date_val else "")
 
                 row_cursor += 1
 
@@ -139,39 +152,40 @@ class ExcelParser:
         row_cursor += 1
 
         # insert rate and exchange at bottom
-        new_ws.cell(
-            row=rate_label_row, column=6, value="Рейт"
-        ).font = Font(name=DEFAULT_FONT.name, bold=True)
-        new_ws.cell(
-            row=exchange_label_row, column=6, value="Курс"
-        ).font = Font(name=DEFAULT_FONT.name, bold=True)
-        new_ws.cell(
-            row=rate_label_row, column=7, value=self.rate
-        ).font = Font(name=DEFAULT_FONT.name, bold=True)
-        new_ws.cell(
-            row=exchange_label_row, column=7, value=self.exchange_rate
-        ).font = Font(name=DEFAULT_FONT.name, bold=True)
+        new_ws.cell(row=rate_label_row, column=6, value="Рейт").font = Font(name=DEFAULT_FONT.name, bold=True)
+        new_ws.cell(row=exchange_label_row, column=6, value="Курс").font = Font(name=DEFAULT_FONT.name, bold=True)
 
-        # insert func of summ of hours
+        rate_cell = new_ws.cell(row=rate_label_row, column=7, value=self.rate)
+        rate_cell.font = Font(name=DEFAULT_FONT.name, bold=True)
+        rate_cell.number_format = FORMAT_NUMBER_00
+
+        exchange_cell = new_ws.cell(row=exchange_label_row, column=7, value=self.exchange_rate)
+        exchange_cell.font = Font(name=DEFAULT_FONT.name, bold=True)
+        exchange_cell.number_format = FORMAT_NUMBER_00
+
+        # totals
         new_ws.cell(row=row_cursor, column=2, value="ИТОГО часов")
-        new_ws.cell(row=row_cursor, column=4, value=f"=SUM(D2:D{last_data_row})")
+        sum_hours_cell = new_ws.cell(row=row_cursor, column=4, value=f"=SUM(D2:D{last_data_row})")
+        sum_hours_cell.number_format = FORMAT_NUMBER_00
         new_ws.cell(row=row_cursor, column=5, value="часов").alignment = Alignment(horizontal="right")
 
-        # insert func of summ
         new_ws.cell(row=row_cursor + 1, column=2, value="ИТОГО к оплате")
-        new_ws.cell(row=row_cursor + 1, column=4, value=f"=SUM(G2:G{last_data_row})")
+        sum_uah_cell = new_ws.cell(row=row_cursor + 1, column=4, value=f"=SUM(G2:G{last_data_row})")
+        sum_uah_cell.number_format = FORMAT_NUMBER_00
         new_ws.cell(row=row_cursor + 1, column=5, value="UAH").alignment = Alignment(horizontal="right")
 
-        # insert total in USD
-        new_ws.cell(
-            row=row_cursor + 2, column=4, value=f"=ROUND(SUM(G2:G{last_data_row})/{self.exchange_rate},2)"
+        new_ws.cell(row=row_cursor + 2, column=2, value="ИТОГО в долларах")
+        sum_usd_cell = new_ws.cell(
+            row=row_cursor + 2,
+            column=4,
+            value=f"=SUM(G2:G{last_data_row})/{self.exchange_rate}"
         )
+        sum_usd_cell.number_format = FORMAT_NUMBER_00
         new_ws.cell(row=row_cursor + 2, column=5, value="$").alignment = Alignment(horizontal="right")
 
         summary_fill = PatternFill(fill_type="solid", start_color="E8F0FE", end_color="E8F0FE")
-
         for r in range(row_cursor, row_cursor + 3):
-            for c in range(2, 6):  # B to E columns (2 to 5)
+            for c in range(2, 6):
                 new_ws.cell(row=r, column=c).fill = summary_fill
 
         new_wb.save(output_path)
