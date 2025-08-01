@@ -4,6 +4,9 @@ Excel parser for removing unused columns and generating financial or project-bas
 Supports grouping by full month or split-half (1–15, 16–end).
 """
 import calendar
+import glob
+import os
+import uuid
 from collections import defaultdict
 from datetime import datetime
 
@@ -25,6 +28,16 @@ class ExcelParser:
         "F", "H", "I",  # Who, Project Category, Company
         "J", "L", "M",  # Task list, Parent task, is sub-task
         "N", "O", "P",  # Is billable?, Invoice number, Hours
+        "Q", "S",       # Minutes, Estimated(hours),
+        "U", "V", "W",  # Estimated(minutes), Tags, Task tags,
+        "X", "Y", "Z",  # First name, Last name, User ID
+    ]
+
+    PROFILE_UNUSED_COLUMNS: list = [
+        "A", "C", "D",  # ID, Date/Time, End date/time
+        "F", "H", "I",  # Who, Project Category, Company
+        "J", "L", "M",  # Task list, Parent task, is sub-task
+        "N", "O", "P",  # Is billable?, Invoice number, Hours
         "Q", "S", "T",  # Minutes, Estimated time, Estimated(hours),
         "U", "V", "W",  # Estimated(minutes), Tags, Task tags,
         "X", "Y", "Z",  # First name, Last name, User ID
@@ -34,6 +47,17 @@ class ExcelParser:
         """Initialize ExcelParser with the path to the workbook."""
         self.workbook_path: str = workbook_path
         DEFAULT_FONT.name = "Ubuntu"
+
+    @staticmethod
+    def cleanup_excel_files(directory: str = ".", prefix: str = "", suffix: str = ".xlsx") -> None:
+        """Delete all .xlsx files in the specified directory (by default, current working dir)."""
+        pattern = os.path.join(directory, f"{prefix}*{suffix}")
+        for file_path in glob.glob(pattern):
+            try:
+                os.remove(file_path)
+                print(f"Deleted: {file_path}")
+            except Exception as e:
+                print(f"Error deleting {file_path}: {e}")
 
     @staticmethod
     def generate_report_filename(report_type: str, date: datetime) -> str:
@@ -137,20 +161,23 @@ class ExcelParser:
             for c in range(2, 6):
                 ws.cell(row=r, column=c).fill = summary_fill
 
-    def remove_unused_columns(self, is_project_report: bool = False) -> None:
+    def remove_unused_columns(self, is_project_report: bool = False) -> str:
         """Remove unused columns."""
         wb: Workbook = load_workbook(self.workbook_path)
         ws: Worksheet = wb.active
 
-        # if its project report then doesn't delete S column (Estimated time in hours)
-        if is_project_report:
-            self.UNUSED_COLUMNS.pop(14)
+        unused_columns: list = self.PROFILE_UNUSED_COLUMNS
 
-        indices = [column_index_from_string(col) for col in self.UNUSED_COLUMNS]
+        if is_project_report:
+            unused_columns = self.UNUSED_COLUMNS
+
+        indices = [column_index_from_string(col) for col in unused_columns]
         for col_index in sorted(indices, reverse=True):
             ws.delete_cols(col_index)
 
-        wb.save(self.workbook_path)
+        temp_path = self.workbook_path.replace(".xlsx", f"{uuid.uuid4()}_temp.xlsx")
+        wb.save(temp_path)
+        return temp_path
 
     def _write_financial_row(
         self,
@@ -186,9 +213,9 @@ class ExcelParser:
 
     def generate_financial_report(self, rate: int, exchange_rate: float) -> str:
         """Generate a personal financial report grouped by project with total hours and costs."""
-        self.remove_unused_columns()
+        temp_path: str = self.remove_unused_columns()
 
-        wb: Workbook = load_workbook(self.workbook_path)
+        wb: Workbook = load_workbook(temp_path)
         ws: Worksheet = wb.active
 
         # get header and rows data
@@ -243,9 +270,9 @@ class ExcelParser:
 
     def generate_project_report(self, group_type: ReportGroupingType) -> str:
         """Generate a project report."""
-        self.remove_unused_columns(is_project_report=True)
+        temp_path: str = self.remove_unused_columns(is_project_report=True)
 
-        wb: Workbook = load_workbook(self.workbook_path)
+        wb: Workbook = load_workbook(temp_path)
         ws: Worksheet = wb.active
 
         header, *data = ws.iter_rows(values_only=True)
@@ -324,6 +351,10 @@ class ExcelParser:
 
                 row_cursor += 2  # space between periods
         else:
+            projects = defaultdict(list)
+            for row in data:
+                projects[row[1]].append(row)
+
             filename = self.generate_report_filename(f"{group_type.value}_project", data[0][0])
             for project, rows in grouped.items():
                 new_ws.merge_cells(start_row=row_cursor, start_column=1, end_row=row_cursor, end_column=4)
@@ -338,6 +369,7 @@ class ExcelParser:
                     name = row[3] or ""
                     hrs = float(row[4] or 0.0)
                     estimated = float(row[5] or 0.0)
+
                     tasks[task_id]["task_name"] = name
                     tasks[task_id]["hours"] += hrs
                     if tasks[task_id]["estimated"] is None and estimated is not None:
