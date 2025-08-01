@@ -50,4 +50,5 @@ app = Litestar(
         path="/",
         render_plugins=[SwaggerRenderPlugin()],
     ),
+    debug=True
 )

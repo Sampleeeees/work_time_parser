@@ -2,7 +2,7 @@
 from datetime import datetime
 
 from openpyxl import load_workbook
-from openpyxl.styles import Font, PatternFill, DEFAULT_FONT
+from openpyxl.styles import Font, PatternFill, DEFAULT_FONT, Alignment
 from openpyxl.utils import column_index_from_string
 from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -22,7 +22,8 @@ class ExcelParser:
         ws = wb.active  # Get the active worksheet
 
         # define column letters to be removed
-        column_letters = ["A", "C", "D", "F", "H", "I", "J", "L", "M", "N", "O", "P", "Q", "S", "T", "U", "V", "W", "X", "Y", "Z"]
+        column_letters = ["A", "C", "D", "F", "H", "I", "J", "L", "M", "N", "O", "P", "Q", "S", "T", "U", "V", "W", "X",
+                          "Y", "Z"]
 
         # convert column letters to 1-based column indices
         column_indices = [column_index_from_string(col) for col in column_letters]
@@ -47,11 +48,20 @@ class ExcelParser:
 
         grouped: dict = {}
         for row in data:
-            project = row[1] # project row
+            project = row[1]  # project row
             if project not in grouped:
                 grouped[project] = []
 
             grouped[project].append(row)
+
+        # precompute total rows to know where to place rate/exchange
+        total_data_rows: int = sum(len(rows) + 4 for rows in grouped.values())
+
+        rate_label_row = total_data_rows + 2
+        exchange_label_row = rate_label_row + 1
+
+        rate_cell_ref = f"$G${rate_label_row}"
+        exchange_cell_ref = f"$G${exchange_label_row}"
 
         new_wb: Workbook = Workbook()
         new_ws = new_wb.active
@@ -99,7 +109,7 @@ class ExcelParser:
                 date_val = row[0]
                 desc = row[2] or ""
                 task = row[3] or ""
-                hours = float(row[4])
+                hours = round(row[4], 2)
                 task_id = row[5]
 
                 if isinstance(date_val, str):
@@ -108,7 +118,6 @@ class ExcelParser:
                     except ValueError:
                         date_val = None
 
-                total_uah: float = round(hours * self.rate * self.exchange_rate, 2)
                 teamwork_link = f"https://avada.teamwork.com/#tasks/{task_id}"
 
                 # write data to cells
@@ -116,9 +125,9 @@ class ExcelParser:
                 new_ws.cell(row=row_cursor, column=2, value=teamwork_link)
                 new_ws.cell(row=row_cursor, column=3, value=desc)
                 new_ws.cell(row=row_cursor, column=4, value=hours)
-                new_ws.cell(row=row_cursor, column=5, value=self.rate)
-                new_ws.cell(row=row_cursor, column=6, value=self.exchange_rate)
-                new_ws.cell(row=row_cursor, column=7, value=total_uah)
+                new_ws.cell(row=row_cursor, column=5, value=f"={rate_cell_ref}")
+                new_ws.cell(row=row_cursor, column=6, value=f"={exchange_cell_ref}")
+                new_ws.cell(row=row_cursor, column=7, value=f"=ROUND(D{row_cursor}*{rate_cell_ref}*{exchange_cell_ref}, 2)")
                 new_ws.cell(row=row_cursor, column=8, value=date_val.strftime("%d.%m.%Y"))
 
                 row_cursor += 1
@@ -126,7 +135,44 @@ class ExcelParser:
             # 3 blank lines between project groups
             row_cursor += 3
 
+        last_data_row = row_cursor - 4
+        row_cursor += 1
+
+        # insert rate and exchange at bottom
+        new_ws.cell(
+            row=rate_label_row, column=6, value="Рейт"
+        ).font = Font(name=DEFAULT_FONT.name, bold=True)
+        new_ws.cell(
+            row=exchange_label_row, column=6, value="Курс"
+        ).font = Font(name=DEFAULT_FONT.name, bold=True)
+        new_ws.cell(
+            row=rate_label_row, column=7, value=self.rate
+        ).font = Font(name=DEFAULT_FONT.name, bold=True)
+        new_ws.cell(
+            row=exchange_label_row, column=7, value=self.exchange_rate
+        ).font = Font(name=DEFAULT_FONT.name, bold=True)
+
+        # insert func of summ of hours
+        new_ws.cell(row=row_cursor, column=2, value="ИТОГО часов")
+        new_ws.cell(row=row_cursor, column=4, value=f"=SUM(D2:D{last_data_row})")
+        new_ws.cell(row=row_cursor, column=5, value="часов").alignment = Alignment(horizontal="right")
+
+        # insert func of summ
+        new_ws.cell(row=row_cursor + 1, column=2, value="ИТОГО к оплате")
+        new_ws.cell(row=row_cursor + 1, column=4, value=f"=SUM(G2:G{last_data_row})")
+        new_ws.cell(row=row_cursor + 1, column=5, value="UAH").alignment = Alignment(horizontal="right")
+
+        # insert total in USD
+        new_ws.cell(
+            row=row_cursor + 2, column=4, value=f"=ROUND(SUM(G2:G{last_data_row})/{self.exchange_rate},2)"
+        )
+        new_ws.cell(row=row_cursor + 2, column=5, value="$").alignment = Alignment(horizontal="right")
+
+        summary_fill = PatternFill(fill_type="solid", start_color="E8F0FE", end_color="E8F0FE")
+
+        for r in range(row_cursor, row_cursor + 3):
+            for c in range(2, 6):  # B to E columns (2 to 5)
+                new_ws.cell(row=r, column=c).fill = summary_fill
+
         new_wb.save(output_path)
         return output_path
-
-
