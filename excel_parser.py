@@ -134,7 +134,7 @@ class ExcelParser:
                 cell_amount = new_ws.cell(
                     row=row_cursor,
                     column=7,
-                    value=f"=D{row_cursor}*{rate_cell_ref}*{exchange_cell_ref}"
+                    value=f"=D{row_cursor}*E{row_cursor}*F{row_cursor}"
                 )
                 cell_amount.number_format = FORMAT_NUMBER_00
 
